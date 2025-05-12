@@ -171,7 +171,7 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
     }
 
     override fun startLauncher() {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.run {
                 startLauncher()
             }
@@ -179,7 +179,7 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
     }
 
     override fun startActivity(packageName: String, userId: Int) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.run {
                 startActivity(packageName, userId)
             }
@@ -187,38 +187,38 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
     }
 
     override fun startTaskId(taskId: Int, packageName: String, userId: Int) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.startTaskId(taskId, packageName, userId)
         }
     }
 
     override fun moveTaskId(taskId: Int, isVirtualDisplay: Boolean) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.moveTaskId(taskId, isVirtualDisplay)
         }
     }
 
     override fun moveTaskToFront(taskId: Int) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.moveTaskToFront(taskId)
         }
     }
 
     override fun moveSecondTaskToFront() {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.moveSecondTaskToFront()
         }
     }
 
     @SuppressLint("MissingPermission")
     override fun removeTask(taskId: Int){
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.removeTask(taskId)
         }
     }
 
     override fun pressKey(action: Int) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.onPressKey(action)
         }
     }
@@ -282,13 +282,13 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
     }
 
     override fun addMirror(surfaceControl: SurfaceControl) {
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.addMirror(surfaceControl)
         }
     }
 
     override fun removeMirror(surfaceControl: SurfaceControl){
-        runMain {
+        runIO {
             mAaVirtualDisplayAdapter?.removeMirror(surfaceControl)
         }
     }
@@ -358,13 +358,13 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
     }
 
     override fun toast(msg: String){
-        runMain {
+        runIO {
             TipUtil.showToast(msg)
         }
     }
 
     override fun printLog(tag: String, msg: String){
-        runMain {
+        runIO {
             log(tag, msg)
         }
     }
