@@ -10,7 +10,6 @@ import io.github.nitsuya.aa.display.util.AADisplayConfig
 import io.github.nitsuya.aa.display.xposed.hook.AndroidAuoHook
 import io.github.nitsuya.aa.display.xposed.hook.AndroidHook
 import io.github.nitsuya.aa.display.xposed.hook.BaseHook
-import io.github.nitsuya.aa.display.xposed.hook.LauncherHook
 import io.github.nitsuya.aa.display.xposed.hook.OtherHook
 
 class XposedInit : IXposedHookZygoteInit, IXposedHookLoadPackage{
@@ -28,7 +27,6 @@ class XposedInit : IXposedHookZygoteInit, IXposedHookLoadPackage{
             packageName == "android" && lpparam.appInfo == null -> arrayOf(AndroidHook)
             packageName == "com.google.android.projection.gearhead" -> arrayOf(AndroidAuoHook)
             packageName == BuildConfig.APPLICATION_ID || lpparam.appInfo == null || lpparam.appInfo.uid == 1000 -> null
-            //packageName == AADisplayConfig.LauncherPackage.get(CoreManagerService.config) -> arrayOf(LauncherHook)
             else -> arrayOf(OtherHook)
         }?.also {
             initHooks(lpparam, *it)
