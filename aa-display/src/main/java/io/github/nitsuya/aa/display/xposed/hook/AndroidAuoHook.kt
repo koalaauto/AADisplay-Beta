@@ -63,13 +63,18 @@ object AndroidAuoHook : BaseHook() {
                 }
                 val measureTimeMillis = measureTimeMillis {
                     hooks.forEach { h ->
-                        h.loadDexClass(bridge, lpparam)
+                        // 单个子 Hook 的 loadDexClass 抛异常不得中断其余子 Hook
+                        // （否则一个 AA 升级击穿点会连累整条 hook 链，例：AaDpiHook
+                        //  在 AaUiHook 之前，它抛 NoSuchMethodException 会让竖排栏也失效）。
+                        runCatching { h.loadDexClass(bridge, lpparam) }
+                            .onFailure { e -> log(tagName, "${h.tagName} loadDexClass failed", e) }
                     }
                 }
                 log(tagName,"${lpparam.processName} load class measure ${measureTimeMillis}ms")
             }
             hooks.forEach { h ->
-                h.hook(configPreferences, lpparam)
+                runCatching { h.hook(configPreferences, lpparam) }
+                    .onFailure { e -> log(tagName, "${h.tagName} hook failed", e) }
             }
         }
     }
