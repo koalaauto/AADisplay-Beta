@@ -38,13 +38,13 @@ This repository is set up for [Claude Code](https://claude.com/claude-code)-driv
 
 | Slash command | Purpose |
 |---|---|
-| `/dev-setup` | One-time: pair Wireless ADB + verify DHU path (replaces the "drive to the car to test" loop) |
-| `/dev-loop [hook]` | Per-iteration: build → wireless install → restart AA → start DHU → give logcat command |
+| `/dev-setup` | One-time: verify USB device authorized + Magisk su for shell + DHU path + AA dev mode |
+| `/dev-loop [hook]` | Per-iteration, fully automated: build → USB install → restart AA → root-start head unit server → launch DHU → conclude from logcat (no phone/terminal interaction) |
 | `/aa-upgrade <version>` | Diagnose & fix Hook breakage on a new AA release |
 | `/build-debug` | Build debug APK with common-failure hints |
 | `/sync-upstream` | Pull commits from upstream `Nitsuya/AADisplay` |
 | `/hook-locate <symbol>` | Find which existing Hook covers a class / method / string |
-| `/release` | Build a signed release APK with pre-flight checks |
+| `/release` | Build the debug APK and publish a GitHub Release to **both** repos (main + Xposed-Modules-Repo) |
 
 | Agent | When to call |
 |---|---|
