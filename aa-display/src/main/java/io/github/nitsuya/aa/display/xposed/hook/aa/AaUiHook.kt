@@ -58,6 +58,10 @@ object AaUiHook: AaHook() {
     // 因此按 Enum.name() 反查比按 ordinal/混淆类名稳。
     private const val ENUM_VERTICAL_RAIL_LHD = "STANDARD_VERTICAL_RAIL"
     private const val ENUM_VERTICAL_RAIL_RHD = "STANDARD_VERTICAL_RAIL_RTL"
+    // 竖屏底栏走 single-pane 的 PORTRAIT_SHORT（对应 sys_ui_layout_short_portrait）。
+    // 不用 PORTRAIT_STANDARD：那是双拼布局（上半地图 widget + 下半 app），
+    // 会让镜像内容只占下半屏、上半被 AA 默认 Google Maps 占（实机已证）。
+    private const val ENUM_PORTRAIT_SHORT = "PORTRAIT_SHORT"
 
     // 不改写的 layoutType（按 Enum.name() 前缀/全名判断，跨版本稳定）：
     // CLUSTER_* = 仪表盘独立物理屏，AUXILIARY_* = 副屏，UNKNOWN_LAYOUT = 未定，
@@ -75,6 +79,25 @@ object AaUiHook: AaHook() {
     // 注意：覆写成 cielo 会让 content 不让位被遮挡（实证），别反过来 cielo 优先。
     private var resLayoutLeftCieloResourceId: Int = 0
     private var resLayoutRightCieloResourceId: Int = 0
+
+    // 竖屏车机：操作栏放底部。AA 自带 portrait 布局（sys_ui_layout_portrait /
+    // sys_ui_layout_short_portrait）天然把 facet bar slot 放在底边满宽矮横条、
+    // content 容器 Bottom_toTopOf 黑底栏 → content 向上让位、不被遮挡（实证 res/j5H.xml）。
+    // 与竖排栏同样 legacy 优先（cielo portrait 仅作 legacy 不存在时的兜底；沿用 16.7
+    // 已证根因原则：cielo content 不让位）。portrait 布局无 lhd/rhd 之分（单资源）。
+    private var resLayoutPortraitResourceId: Int = 0
+    private var resLayoutShortPortraitResourceId: Int = 0
+    private var resLayoutPortraitCieloResourceId: Int = 0
+    private var resLayoutShortPortraitCieloResourceId: Int = 0
+
+    // hookLayout 决策出的"本次是否底栏模式"（竖屏 portrait=true / 横屏竖排栏=false）。
+    // hookFacetBar 据此选横向(底栏)/竖向(左栏)排布。默认 false=维持现状竖排栏，
+    // 万一 facet bar 先于任何 LayoutInfo 构造 inflate 也不会 regression。
+    // 已评估的弱一致性取舍：写在 LayoutInfo 构造 hookBefore、读在 LayoutInflater.inflate
+    // hookAfter，跨帧共享单例可变状态。@Volatile 只保证可见性，不保证 inflate 读到的是
+    // "本轮布局那次"写入——横竖屏切换瞬间极端交错可能让 facet bar 方向错一帧，但下次
+    // inflate 即自愈、全程在 try/catch 内不崩、车机横竖切换低频，故接受不另加锁/配对。
+    @Volatile private var bottomBarMode = false
 
     // 16.1 旧竖排栏 inflate gh_coolwalk_vertical_facet_bar；16.7 cielo 竖排栏运行时
     // inflate 横版 gh_coolwalk_facet_bar(LHD)/gh_coolwalk_facet_bar_rhd(RHD)。三者任一
@@ -141,6 +164,13 @@ object AaUiHook: AaHook() {
         resLayoutLeftCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_lhd", "layout", InitFields.appContext.packageName)
         resLayoutRightCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_rhd", "layout", InitFields.appContext.packageName)
 
+        // 竖屏底栏：AA 自带 portrait 布局（legacy 优先，cielo 兜底；无 lhd/rhd）
+        resLayoutPortraitResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_portrait", "layout", InitFields.appContext.packageName)
+        resLayoutShortPortraitResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_short_portrait", "layout", InitFields.appContext.packageName)
+        resLayoutPortraitCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_portrait", "layout", InitFields.appContext.packageName)
+        resLayoutShortPortraitCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_short_portrait", "layout", InitFields.appContext.packageName)
+        log(tagName, "AaUiHook: portrait res legacy(std=$resLayoutPortraitResourceId,short=$resLayoutShortPortraitResourceId) cielo(std=$resLayoutPortraitCieloResourceId,short=$resLayoutShortPortraitCieloResourceId)")
+
         assert(resLayoutFacetBarIds.isNotEmpty()) { "no facet bar layout id resolved" }
         assert(resIdStatusBarId != 0) { "resIdStatusBarId not fund" }
         assert(resIdAssistantIconContainerId != 0) { "resIdAssistantIconContainerId not fund" }
@@ -190,6 +220,25 @@ object AaUiHook: AaHook() {
         return use
     }
 
+    // 竖屏底栏资源解析：**必须用 single-pane 的 short_portrait**。
+    // sys_ui_layout_portrait 是双拼(content 容器内 50% guideline：上半地图 widget +
+    // 下半 app)，会让镜像内容只占下半屏、上半被 AA 默认 Google Maps 占（实机已证）；
+    // sys_ui_layout_short_portrait 无 50% 分屏，content 区直接 Bottom_toTopOf 底栏 →
+    // 镜像内容全屏。优先级：legacy-short > cielo-short > legacy-std > cielo-std
+    // （legacy 优先沿用 16.7 已证根因：cielo content 不让位；std 双拼仅极端兜底）。
+    // 返回 0 表示无可用资源 → 调用方回退竖排栏（无 regression）。
+    private fun resolvePortraitResId(): Int {
+        val candidates = linkedMapOf(
+            "legacy-short" to resLayoutShortPortraitResourceId,
+            "cielo-short" to resLayoutShortPortraitCieloResourceId,
+            "legacy-std" to resLayoutPortraitResourceId,
+            "cielo-std" to resLayoutPortraitCieloResourceId,
+        )
+        val pick = candidates.entries.firstOrNull { it.value != 0 }
+        log(tagName, "AaUiHook: portrait resId -> ${pick?.key ?: "none"}=${pick?.value ?: 0} (candidates=$candidates)")
+        return pick?.value ?: 0
+    }
+
     // 按 Enum.name() 在该枚举类里反查目标常量（AA 16.7 layoutType 是混淆枚举，
     // 类名不稳但常量名 STANDARD_VERTICAL_RAIL[_RTL] 跨版本稳定）。
     private fun findEnumConstantByName(enumClass: Class<*>, targetName: String): Any? {
@@ -203,6 +252,7 @@ object AaUiHook: AaHook() {
     @Volatile private var loggedIntDecision = false
     @Volatile private var loggedEnumDecision = false
     @Volatile private var loggedSkipDecision = false
+    @Volatile private var loggedPortraitDecision = false
 
     private fun hookLayout() {
         val ctor = layoutInfoConstructor
@@ -223,6 +273,7 @@ object AaUiHook: AaHook() {
                             8, 9, 10 -> return@hookBefore
                         }
                         val isRightHandDrive = param.args[4] as Boolean
+                        bottomBarMode = false // int 路径=旧 AA(≤16.1)，竖排栏；竖屏底栏只走 16.7 enum 路径
                         param.args[0] = resolveVerticalRailResId(isRightHandDrive)
                         param.args[3] = if (isRightHandDrive) 4 else 3 // layoutType left:3 right:4
                         if (param.args.size > 5 && param.args[5] is Boolean) {
@@ -245,6 +296,30 @@ object AaUiHook: AaHook() {
                             }
                             return@hookBefore
                         }
+                        // 竖屏车机：AA 自己判定为 PORTRAIT*（实测竖屏车机传 PORTRAIT_STANDARD，
+                        // ordinal 10）。不改写成竖排栏，而是 enum+resId 一起改成 single-pane
+                        // 的 PORTRAIT_SHORT + sys_ui_layout_short_portrait（content 向上让位 +
+                        // 底部黑横条、镜像内容全屏）。**必须 enum 也改**：复刻竖排栏"enum 与
+                        // resId 一起改"的成例——否则 AA 仍按双拼 PORTRAIT_STANDARD 分配出
+                        // 第二个内容面塞默认 Google Maps（实机已证：只改 resId 时上半是 Maps）。
+                        // portrait 资源不可用（更老 AA）才落到下面竖排栏逻辑（无 regression）。
+                        // 横屏 AA 传 WIDESCREEN/CANONICAL 等，不进此分支 → 自动维持现状左竖
+                        // 排栏（满足"横屏后期=左侧"）。
+                        if (name.startsWith("PORTRAIT")) {
+                            val portraitResId = resolvePortraitResId()
+                            if (portraitResId != 0) {
+                                param.args[0] = portraitResId
+                                val shortEnum = findEnumConstantByName(layoutTypeArg.javaClass, ENUM_PORTRAIT_SHORT)
+                                if (shortEnum != null) param.args[3] = shortEnum
+                                bottomBarMode = true
+                                if (!loggedPortraitDecision) {
+                                    loggedPortraitDecision = true
+                                    log(tagName, "AaUiHook: layout portrait(enum) $name -> ${if (shortEnum != null) ENUM_PORTRAIT_SHORT else "$name(keep,enum miss)"}, resId=$portraitResId (bottom bar, single-pane)")
+                                }
+                                return@hookBefore
+                            }
+                            log(tagName, "AaUiHook: portrait resId unavailable for $name, fallback to vertical rail")
+                        }
                         val isRightHandDrive = param.args[4] as Boolean
                         val targetEnumName = if (isRightHandDrive) ENUM_VERTICAL_RAIL_RHD else ENUM_VERTICAL_RAIL_LHD
                         val targetEnum = findEnumConstantByName(layoutTypeArg.javaClass, targetEnumName)
@@ -252,6 +327,7 @@ object AaUiHook: AaHook() {
                             log(tagName, "AaUiHook: enum $targetEnumName not found in ${layoutTypeArg.javaClass.name}, keep original (was $name)")
                             return@hookBefore
                         }
+                        bottomBarMode = false // 横屏内容屏：竖排栏，facet bar 竖向排布
                         param.args[0] = resolveVerticalRailResId(isRightHandDrive)
                         param.args[3] = targetEnum
                         if (param.args.size > 5 && param.args[5] is Boolean) {
@@ -390,6 +466,10 @@ object AaUiHook: AaHook() {
                 val btn = ImageView(ctx).apply {
                     id = View.generateViewId()
                     layoutParams = ConstraintLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    // 统一缩放：所有图标在各自 44dp 盒内 FIT_CENTER，视觉尺寸一致。
+                    // 不硬设 px（遵守 16.7 教训：投屏 display 密度≠主屏）；图标统一用
+                    // 标准 Material Icons（24dp 网格、字重一致），盒同 + glyph 同 → 看齐。
+                    scaleType = ImageView.ScaleType.FIT_CENTER
                     setImageResource(resId)
                 }
                 block(btn)
@@ -401,7 +481,7 @@ object AaUiHook: AaHook() {
                 resIdLauncherAndDashboardIconContainerId
             )
             val bottomIds = arrayListOf(
-                createBtn(R.drawable.ic_aa_home_44){
+                createBtn(R.drawable.ic_sysbar_home){
                     val intentClick = Intent().apply {
                         action = AABroadcastConst.ACTION_SCREEN_CONTROL
                         putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_HOME)
@@ -411,7 +491,7 @@ object AaUiHook: AaHook() {
                     }
                     setPadding(0, 5, 0, 5)
                 },
-                createBtn(R.drawable.ic_aa_fullscreen_44){
+                createBtn(R.drawable.ic_sysbar_recent){
                     val intentClick = Intent().apply {
                         action = AABroadcastConst.ACTION_SCREEN_CONTROL
                         putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_APP_SWITCH)
@@ -421,7 +501,7 @@ object AaUiHook: AaHook() {
                     }
                     setPadding(0, 5, 0, 5)
                 },
-                createBtn(R.drawable.ic_aa_arrow_back_44){
+                createBtn(R.drawable.ic_sysbar_back){
                     val intentClick = Intent().apply {
                         action = AABroadcastConst.ACTION_SCREEN_CONTROL
                         putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_BACK)
@@ -432,39 +512,6 @@ object AaUiHook: AaHook() {
                     setPadding(0, 5, 0, 5)
                 },
             )
-//                createBtn(R.drawable.ic_aa_filter_none_44){
-//                    val intentClick = Intent().apply {
-//                        action = AABroadcastConst.ACTION_SCREEN_CONTROL
-//                        putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_DEMO_APP_1)
-//                    }
-//                    setOnClickListener {
-//                        ctx.sendBroadcast(intentClick)
-//                    }
-//                    setPadding(0, 5, 0, 2)
-//                },
-//                createBtn(R.drawable.ic_aa_phone_44){
-//                    val intentClick = Intent().apply {
-//                        action = AABroadcastConst.ACTION_SCREEN_CONTROL
-//                        putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_FEATURED_APP_1)
-//                    }
-//                    setOnClickListener {
-//                        ctx.sendBroadcast(intentClick)
-//                    }
-//                    setPadding(0, 5, 0, 10)
-//                },
-//                resultViewGroup.findViewById<View>(resIdAssistantIconId).run {
-//                    if(!enableDefVoiceAssist){
-//                        val intentClick = Intent().apply {
-//                            action = AABroadcastConst.ACTION_SCREEN_CONTROL
-//                            putExtra(AABroadcastConst.EXTRA_ACTION, KeyEvent.KEYCODE_SEARCH)
-//                        }
-//                        setOnClickFinallyListener {
-//                            ctx.sendBroadcast(intentClick)
-//                        }
-//                    }
-//                    resIdAssistantIconContainerId
-//                },
-//          arrayListOf(resIdStatusBarId, resIdLauncherAndDashboardIconContainerId, resIdAssistantIconContainerId).forEach { vId ->
             val movedTopIds = ArrayList<Int>()
             arrayListOf(resIdStatusBarId, resIdLauncherAndDashboardIconContainerId).forEach { vId ->
                 val view = resultViewGroup.findViewById<View>(vId) ?: run {
@@ -499,15 +546,39 @@ object AaUiHook: AaHook() {
 //            }
             val set = ConstraintSet()
             set.clone(aaFacetBar)
-            bottomIds.forEachIndexed { index, vId ->
-                set.connect(vId, ConstraintSet.BOTTOM, if(index == 0) ConstraintSet.PARENT_ID else bottomIds[index-1], if(index == 0) ConstraintSet.BOTTOM else ConstraintSet.TOP, 0)
-                set.connect(vId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, 0)
-                set.connect(vId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, 0)
-            }
-            movedTopIds.forEachIndexed { index, vId ->
-                set.connect(vId, ConstraintSet.TOP, if(index == 0) ConstraintSet.PARENT_ID else topIds[index-1], if(index == 0) ConstraintSet.TOP else ConstraintSet.BOTTOM, 0)
-                set.connect(vId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, 0)
-                set.connect(vId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, 0)
+            if (bottomBarMode) {
+                // 竖屏底栏：横向行排布。用户要求"最左=主页，最右=通知/时间"：
+                // bottomIds(home/fullscreen/back) 锚**左端**、向右生长（index0=home 贴 parent
+                // START → home 最左）；movedTopIds(status/launcher) 锚**右端**、向左生长
+                // （index0=status 贴 parent END → 状态/时间最右）；TOP+BOTTOM 拉 parent 垂直居中。
+                // 间距：单一值 spacePx 同时作为「贴边距离」和「图标间距」，左右对称、
+                // 节奏一致（用户要求：最左图标距边 == 图标间距 == 右侧间距）。
+                // 按**投屏 ctx 密度**算 px（非 appContext，不违反 16.7 教训——ctx 就是
+                // 投屏 display 的 inflater context）。spacePx 可单点调。
+                val density = ctx.resources.displayMetrics.density
+                val spacePx = (20 * density).toInt()
+                bottomIds.forEachIndexed { index, vId ->
+                    set.connect(vId, ConstraintSet.START, if(index == 0) ConstraintSet.PARENT_ID else bottomIds[index-1], if(index == 0) ConstraintSet.START else ConstraintSet.END, spacePx)
+                    set.connect(vId, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP, 0)
+                    set.connect(vId, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
+                }
+                movedTopIds.forEachIndexed { index, vId ->
+                    set.connect(vId, ConstraintSet.END, if(index == 0) ConstraintSet.PARENT_ID else topIds[index-1], if(index == 0) ConstraintSet.END else ConstraintSet.START, spacePx)
+                    set.connect(vId, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP, 0)
+                    set.connect(vId, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
+                }
+            } else {
+                // 横屏左竖排栏（现状，与升级前 16.1 一致）
+                bottomIds.forEachIndexed { index, vId ->
+                    set.connect(vId, ConstraintSet.BOTTOM, if(index == 0) ConstraintSet.PARENT_ID else bottomIds[index-1], if(index == 0) ConstraintSet.BOTTOM else ConstraintSet.TOP, 0)
+                    set.connect(vId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, 0)
+                    set.connect(vId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, 0)
+                }
+                movedTopIds.forEachIndexed { index, vId ->
+                    set.connect(vId, ConstraintSet.TOP, if(index == 0) ConstraintSet.PARENT_ID else topIds[index-1], if(index == 0) ConstraintSet.TOP else ConstraintSet.BOTTOM, 0)
+                    set.connect(vId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, 0)
+                    set.connect(vId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, 0)
+                }
             }
 //            set.connect(statusBarOverlayId, ConstraintSet.BOTTOM, resIdStatusBarId, ConstraintSet.BOTTOM, 0)
 //            set.connect(statusBarOverlayId, ConstraintSet.TOP, resIdStatusBarId, ConstraintSet.TOP, 0)
@@ -517,7 +588,7 @@ object AaUiHook: AaHook() {
             resultViewGroup.visibility = View.GONE
             aaFacetBar.addView(resultViewGroup)
             param.result = aaFacetBar
-            log(tagName, "AaUiHook: aa_facet_bar injected ok (topIds=${movedTopIds.size})")
+            log(tagName, "AaUiHook: aa_facet_bar injected ok (mode=${if (bottomBarMode) "bottom" else "vertical"}, topIds=${movedTopIds.size})")
             } catch (e: Throwable) {
                 log(tagName, "AaUiHook: aa_facet_bar inject failed for id=${param.args[0]}, keep original", e)
             }

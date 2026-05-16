@@ -78,7 +78,16 @@ class AaMainFragment : BaseFragment<FragmentAaMainBinding>(FragmentAaMainBinding
                             }
                             when(action){
                                 KeyEvent.KEYCODE_DEMO_APP_1 -> CoreApi.moveSecondTaskToFront()
-                                KeyEvent.KEYCODE_BACK -> CoreApi.pressKey(action)
+                                KeyEvent.KEYCODE_BACK -> {
+                                    // 最近任务浮层在显示时，BACK 先关浮层（否则 BACK 被注入
+                                    // 镜像 VirtualDisplay 的 app，浮层关不掉——用户实测 bug）。
+                                    val fm = this@AaMainFragment.parentFragmentManager
+                                    if (fm.findFragmentByTag("RecentTask") != null) {
+                                        runMain { AaDisplayActivityKt.hideRecentTask(fm) }
+                                    } else {
+                                        CoreApi.pressKey(action)
+                                    }
+                                }
                                 KeyEvent.KEYCODE_HOME -> CoreApi.startLauncher()
                                 KeyEvent.KEYCODE_APP_SWITCH -> runMain {
                                     AaDisplayActivityKt.showRecentTask(this@AaMainFragment.parentFragmentManager)

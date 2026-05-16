@@ -1,0 +1,19 @@
+<!-- AOSP SystemUI ic_sysbar_home 形状（圆），改为描边空心。原始实心 path 来自
+     platform_frameworks_base packages/SystemUI/res/drawable/ic_sysbar_home.xml。
+     AOSP 无官方空心 sysbar 集，故对同一 path 做 stroke 空心化。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="38dp"
+    android:height="38dp"
+    android:tint="#FFFFFF"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <group android:pivotX="10" android:pivotY="10" android:scaleX="0.94" android:scaleY="0.94">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="1.6"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round"
+            android:pathData="M10.0001 18.3334C5.40008 18.3334 1.66675 14.6 1.66675 10C1.66675 5.40002 5.40008 1.66669 10.0001 1.66669C14.6001 1.66669 18.3334 5.40002 18.3334 10C18.3334 14.6 14.6001 18.3334 10.0001 18.3334Z" />
+    </group>
+</vector>
