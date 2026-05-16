@@ -70,8 +70,9 @@ object AaUiHook: AaHook() {
             name.startsWith("AUXILIARY")
     }
 
-    // 16.7 真正生效的 cielo 竖排栏资源；resolveVerticalRailResId 优先取这两个，
-    // getIdentifier==0（更老版本无 cielo）再回退到 16.1 的旧资源名。
+    // 16.7 的 cielo 竖排栏资源，仅作兜底：resolveVerticalRailResId 是 legacy 优先，
+    // 只有 legacy 资源不存在（更老/未来版本）才回退到这两个 cielo 资源。
+    // 注意：覆写成 cielo 会让 content 不让位被遮挡（实证），别反过来 cielo 优先。
     private var resLayoutLeftCieloResourceId: Int = 0
     private var resLayoutRightCieloResourceId: Int = 0
 
@@ -176,13 +177,17 @@ object AaUiHook: AaHook() {
         }.joinToString(separator = "\r\n", prefix = "    ".repeat(index)) { it }
     }
 
-    // 竖排栏资源解析：优先 16.7 cielo，回退 16.1 legacy。
+    // 竖排栏资源解析：legacy 优先（与升级前 16.1 一致），cielo 仅作兜底。
     private fun resolveVerticalRailResId(isRightHandDrive: Boolean): Int {
-        return if (isRightHandDrive) {
-            if (resLayoutRightCieloResourceId != 0) resLayoutRightCieloResourceId else resLayoutRightResourceId
-        } else {
-            if (resLayoutLeftCieloResourceId != 0) resLayoutLeftCieloResourceId else resLayoutLeftResourceId
-        }
+        // 升级前(16.1)正常：覆写成旧 legacy 竖排栏布局，其 content 自动让位 + 窄黑 rail
+        // (旧 coolwalk 行为)。16.7 该 legacy 资源仍保留，继续用它即与升级前一致。
+        // cielo 布局 content 不让位(实证 contentInset_left begin=0 → 遮挡)，只当 legacy
+        // 资源不存在(更老/未来版本)才回退 cielo。—— legacy 优先，纠正 R2 的 cielo 优先。
+        val legacy = if (isRightHandDrive) resLayoutRightResourceId else resLayoutLeftResourceId
+        val cielo = if (isRightHandDrive) resLayoutRightCieloResourceId else resLayoutLeftCieloResourceId
+        val use = if (legacy != 0) legacy else cielo
+        log(tagName, "AaUiHook: vertical rail resId -> ${if (use == legacy && legacy != 0) "legacy" else "cielo"}=$use (rhd=$isRightHandDrive, legacy=$legacy cielo=$cielo)")
+        return use
     }
 
     // 按 Enum.name() 在该枚举类里反查目标常量（AA 16.7 layoutType 是混淆枚举，
@@ -363,21 +368,9 @@ object AaUiHook: AaHook() {
                 }
             }
             val aaFacetBar = layoutInflater.inflate(R.layout.aa_facet_bar, resultViewGroupParent, false) as ConstraintLayout
-            // rail 宽度跟随 AA 自己的 coolwalk_vertical_rail_width（竖屏 80dp / 大屏 92dp，
-            // 横竖屏由 AA 资源限定符自动给值），不硬编码，便于后期横屏适配
-            runCatching {
-                val rwId = InitFields.appContext.resources.getIdentifier("coolwalk_vertical_rail_width", "dimen", InitFields.appContext.packageName)
-                if (rwId != 0) {
-                    val rw = InitFields.appContext.resources.getDimensionPixelSize(rwId)
-                    if (rw > 0) {
-                        aaFacetBar.layoutParams = aaFacetBar.layoutParams?.apply { width = rw }
-                            ?: ViewGroup.LayoutParams(rw, ViewGroup.LayoutParams.MATCH_PARENT)
-                        log(tagName, "AaUiHook: rail width from AA coolwalk_vertical_rail_width = ${rw}px")
-                    }
-                } else {
-                    log(tagName, "AaUiHook: coolwalk_vertical_rail_width dimen not found, keep layout default")
-                }
-            }.onFailure { log(tagName, "AaUiHook: set rail width failed", it) }
+            // 不强设 aaFacetBar 宽度：让它 match_parent 填满 AA legacy facet slot（窄黑 rail），
+            // 图标按 ConstraintSet 在窄 slot 内正常排布（与升级前 16.1 一致）。R4 曾用主屏
+            // 密度算的 px 强设宽度，与投屏 display 密度不符，把图标布局撑坏，已移除。
             if(autoOpen){
                 aaFacetBar.post {
                     runMain {

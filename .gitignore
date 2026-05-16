@@ -10,3 +10,5 @@ aa-display/build
 .externalNativeBuild
 .cxx
 local.properties
+# Claude Code agent 临时 worktree（隔离用，改动用完即提取，不入仓库）
+.claude/worktrees/
