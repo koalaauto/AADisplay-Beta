@@ -5,8 +5,6 @@ import android.os.Binder
 import android.os.Build
 import android.os.Parcel
 import android.os.Process
-import com.github.kyuubiran.ezxhelper.utils.findMethod
-import com.github.kyuubiran.ezxhelper.utils.hookBefore
 import io.github.nitsuya.aa.display.BuildConfig
 
 object BridgeService {
@@ -15,7 +13,7 @@ object BridgeService {
 
     private var appUid = 0
 
-    fun register(pms: IPackageManager) {
+    fun register(ctx: XposedRuntimeContext, pms: IPackageManager) {
         log(TAG, "Initialize AADisplayService - Version ${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})")
         appUid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pms.getPackageUid(BuildConfig.APPLICATION_ID, 0L, 0)
@@ -34,13 +32,18 @@ object BridgeService {
         log(TAG, "Client uid: $appUid")
         log(TAG, "Service uid: ${Process.myUid()}")
         log(TAG, "Initialize service proxy")
-        pms.javaClass.findMethod(true) {
+        ctx.hookBefore(ctx.findMethod(pms.javaClass, findSuper = true) {
             name == "onTransact"
-        }.hookBefore { param ->
+                && parameterCount == 4
+                && parameterTypes[0] == Int::class.javaPrimitiveType
+                && parameterTypes[1] == Parcel::class.java
+                && parameterTypes[2] == Parcel::class.java
+                && parameterTypes[3] == Int::class.javaPrimitiveType
+        }) { param ->
             val code = param.args[0] as Int
             val data = param.args[1] as Parcel
             val reply = param.args[2] as Parcel?
-            if (myTransact(code, data, reply)) param.result = true
+            if (myTransact(code, data, reply)) param.returnEarly(true)
         }
     }
 

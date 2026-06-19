@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.support.car.Car
 import com.google.android.gms.car.CarFirstPartyManager
-import com.github.kyuubiran.ezxhelper.utils.field
 import io.github.nitsuya.aa.display.BuildConfig
 import io.github.nitsuya.aa.display.service.AaActivityService
 

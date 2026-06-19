@@ -1,13 +1,14 @@
 package io.github.nitsuya.aa.display.xposed.hook
 
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import io.github.nitsuya.aa.display.xposed.BeforeHookParam
+import io.github.nitsuya.aa.display.xposed.XposedRuntimeContext
 
 abstract class BaseHook {
     var isInit: Boolean = false
     abstract val tagName: String
-    abstract fun init(lpparam: XC_LoadPackage.LoadPackageParam)
+    abstract fun init(ctx: XposedRuntimeContext)
 }
-inline fun XC_MethodHook.MethodHookParam.abortMethod() {
-    this.result = null
+
+fun BeforeHookParam.abortMethod() {
+    returnEarly(null)
 }

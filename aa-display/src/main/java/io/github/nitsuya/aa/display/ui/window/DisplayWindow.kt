@@ -14,13 +14,13 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.allViews
 import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.github.kyuubiran.ezxhelper.utils.tryOrNull
 import io.github.nitsuya.aa.display.BuildConfig
 import io.github.nitsuya.aa.display.R
 import io.github.nitsuya.aa.display.databinding.WindowControllerBinding
 import io.github.nitsuya.aa.display.databinding.WindowMirrorBinding
 import io.github.nitsuya.aa.display.ui.aa.AaVirtualDisplayAdapter
 import io.github.nitsuya.aa.display.util.AADisplayConfig
+import io.github.nitsuya.aa.display.util.tryOrNull
 import io.github.nitsuya.aa.display.xposed.CoreManagerService
 import io.github.nitsuya.aa.display.xposed.TipUtil
 import io.github.nitsuya.aa.display.xposed.hook.AndroidHook

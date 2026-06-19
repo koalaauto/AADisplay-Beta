@@ -1,6 +1,7 @@
 package io.github.nitsuya.aa.display.ui.setting
 
 import android.os.Bundle
+import android.content.Context
 import androidx.preference.PreferenceFragmentCompat
 import io.github.duzhaokun123.template.bases.BaseActivity
 import io.github.nitsuya.aa.display.R
@@ -21,7 +22,7 @@ class SettingsActivity : BaseActivity<ActivitySettingsBinding>(ActivitySettingsB
             requireContext().theme.applyStyle(rikka.material.preference.R.style.ThemeOverlay_Rikka_Material3_Preference, true)
             preferenceManager.apply {
                 sharedPreferencesName = AADisplayConfig.ConfigName
-                sharedPreferencesMode = MODE_WORLD_READABLE
+                sharedPreferencesMode = Context.MODE_PRIVATE
             }
             setPreferencesFromResource(R.xml.pref_aadisplay_config, rootKey)
         }

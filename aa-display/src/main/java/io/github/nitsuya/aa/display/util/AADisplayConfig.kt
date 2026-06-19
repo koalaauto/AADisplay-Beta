@@ -1,7 +1,6 @@
 package io.github.nitsuya.aa.display.util
 
 import android.content.SharedPreferences
-import com.github.kyuubiran.ezxhelper.utils.tryOrNull
 import java.io.StringReader
 import java.util.*
 import kotlin.streams.toList

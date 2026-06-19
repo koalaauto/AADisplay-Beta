@@ -3,7 +3,6 @@
     <string name="unknown_error">unknown error</string>
     <string name="details">details</string>
     <string name="settings">settings</string>
-    <string name="xposeddescription">AADisplay</string>
     <string name="info_system_version">System Version</string>
     <string name="info_root_privilege">Root Privilege</string>
     <string name="activated">Activated</string>

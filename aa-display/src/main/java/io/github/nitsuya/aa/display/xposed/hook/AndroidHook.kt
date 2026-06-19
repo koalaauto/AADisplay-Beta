@@ -5,188 +5,240 @@ import android.content.pm.ActivityInfo
 import android.content.pm.IPackageManager
 import android.content.res.Configuration
 import android.os.Build
-import com.github.kyuubiran.ezxhelper.utils.*
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import android.os.IBinder
 import io.github.nitsuya.aa.display.CoreApi
 import io.github.nitsuya.aa.display.IsSystemEnv
+import io.github.nitsuya.aa.display.util.AADisplayConfig
 import io.github.nitsuya.aa.display.xposed.BridgeService
 import io.github.nitsuya.aa.display.xposed.CoreManagerService
+import io.github.nitsuya.aa.display.xposed.ManagedHookHandle
+import io.github.nitsuya.aa.display.xposed.RemoteConfigProvider
+import io.github.nitsuya.aa.display.xposed.XposedRuntimeContext
+import io.github.nitsuya.aa.display.xposed.getObject
+import io.github.nitsuya.aa.display.xposed.getObjectAs
+import io.github.nitsuya.aa.display.xposed.invokeMethod
 import io.github.nitsuya.aa.display.xposed.log
 import io.github.qauxv.util.Initiator
+import java.util.Collections
 
 object AndroidHook : BaseHook() {
     override val tagName: String = "AAD_AndroidHook"
-    override fun init(lpparam: XC_LoadPackage.LoadPackageParam) {
-        Initiator.init(lpparam.classLoader)
+
+    private var runtimeContext: XposedRuntimeContext? = null
+
+    override fun init(ctx: XposedRuntimeContext) {
+        runtimeContext = ctx
+        Initiator.init(ctx.classLoader)
+        CoreManagerService.setConfigProvider(RemoteConfigProvider(ctx, AADisplayConfig.ConfigName, CoreManagerService.TAG))
         log(tagName, "xposed init")
-        var serviceManagerHook: XC_MethodHook.Unhook? = null
-        serviceManagerHook = findMethod("android.os.ServiceManager") {
-            name == "addService"
-        }.hookBefore { param ->
-            if (param.args[0] == "package") {
-                serviceManagerHook?.unhook()
-                val pms = param.args[1] as IPackageManager
-                log(tagName, "Got pms: $pms")
-                runCatching {
-                    BridgeService.register(pms)
-                    log(tagName, "Bridge service injected")
-                }.onFailure {
-                    log(tagName, "System service crashed", it)
+
+        hookPackageService(ctx)
+        hookActivityManagerService(ctx)
+        hookDisplayLaunchPermission(ctx)
+    }
+
+    private fun hookPackageService(ctx: XposedRuntimeContext) {
+        runCatching {
+            var serviceManagerHooks: List<ManagedHookHandle> = emptyList()
+            val addServiceMethods = ctx.findAllMethods("android.os.ServiceManager") {
+                name == "addService"
+                    && parameterCount >= 2
+                    && parameterTypes[0] == String::class.java
+                    && IBinder::class.java.isAssignableFrom(parameterTypes[1])
+            }
+            serviceManagerHooks = addServiceMethods.map { method ->
+                ctx.hookBefore(method) { param ->
+                    if (param.args.getOrNull(0) == "package") {
+                        serviceManagerHooks.forEach { it.unhook() }
+                        val binder = param.args.getOrNull(1) as? IBinder ?: return@hookBefore
+                        val pms = (binder as? IPackageManager)
+                            ?: IPackageManager.Stub.asInterface(binder)
+                            ?: return@hookBefore
+                        log(tagName, "Got pms: $pms")
+                        runCatching {
+                            BridgeService.register(ctx, pms)
+                            log(tagName, "Bridge service injected")
+                        }.onFailure {
+                            log(tagName, "System service crashed", it)
+                        }
+                    }
                 }
             }
+            if (serviceManagerHooks.isEmpty()) {
+                log(tagName, "no ServiceManager.addService overload found")
+            }
+        }.onFailure {
+            log(tagName, "ServiceManager.addService", it)
         }
+    }
 
-        var activityManagerServiceConstructorHook: List<XC_MethodHook.Unhook> = emptyList()
-        activityManagerServiceConstructorHook = findAllConstructors("com.android.server.am.ActivityManagerService") {
-            parameterTypes[0] == Context::class.java
-        }.hookAfter {
-            activityManagerServiceConstructorHook.forEach { hook -> hook.unhook() }
-            CoreManagerService.systemContext = it.thisObject.getObjectAs("mUiContext")
-            log(tagName, "get systemUiContext")
-        }.also {
-            if (it.isEmpty())
+    private fun hookActivityManagerService(ctx: XposedRuntimeContext) {
+        runCatching {
+            var constructorHooks: List<ManagedHookHandle> = emptyList()
+            val constructors = ctx.findAllConstructors("com.android.server.am.ActivityManagerService") {
+                parameterTypes.isNotEmpty() && parameterTypes[0] == Context::class.java
+            }
+            constructorHooks = constructors.map { constructor ->
+                ctx.hookAfter(constructor) { param ->
+                    constructorHooks.forEach { it.unhook() }
+                    CoreManagerService.systemContext = param.thisObject!!.getObjectAs("mUiContext")
+                    log(tagName, "get systemUiContext")
+                }
+            }
+            if (constructorHooks.isEmpty()) {
                 log(tagName, "no constructor with parameterTypes[0] == Context found")
+            }
+        }.onFailure {
+            log(tagName, "ActivityManagerService constructor", it)
         }
 
-        var activityManagerServiceSystemReadyHook: XC_MethodHook.Unhook? = null
-        activityManagerServiceSystemReadyHook = findMethod("com.android.server.am.ActivityManagerService") {
-            name == "systemReady"
-        }.hookAfter {
-            activityManagerServiceSystemReadyHook?.unhook()
-            CoreManagerService.systemReady()
-            log(tagName, "system ready")
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {//10+
-            var className = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)  //12+
-                "com.android.server.wm.ActivityTaskSupervisor"
-            else  //10+
-                "com.android.server.wm.ActivityStackSupervisor"
-            findMethod(className){
-                name == "isCallerAllowedToLaunchOnDisplay"
-                && parameterCount == 4
-                && parameterTypes[0] == Int::class.javaPrimitiveType //callingPid
-                && parameterTypes[1] == Int::class.javaPrimitiveType //callingUid
-                && parameterTypes[2] == Int::class.javaPrimitiveType //launchDisplayId
-                && parameterTypes[3] == ActivityInfo::class.java
-            }.hookAfter { param ->
-                if((param.result as Boolean).not() && param.args[2] == CoreManagerService.getDisplayId()){
-                    param.result = true
-                    log(tagName,"hook isCallerAllowedToLaunchOnDisplay success")
+        runCatching {
+            var systemReadyHooks: List<ManagedHookHandle> = emptyList()
+            val methods = ctx.findAllMethods("com.android.server.am.ActivityManagerService") {
+                name == "systemReady"
+            }
+            systemReadyHooks = methods.map { method ->
+                ctx.hookAfter(method) {
+                    systemReadyHooks.forEach { it.unhook() }
+                    runCatching {
+                        CoreManagerService.systemReady()
+                        log(tagName, "system ready")
+                    }.onFailure { error ->
+                        log(tagName, "systemReady callback", error)
+                    }
                 }
             }
+            if (systemReadyHooks.isEmpty()) {
+                log(tagName, "no ActivityManagerService.systemReady overload found")
+            }
+        }.onFailure {
+            log(tagName, "ActivityManagerService.systemReady", it)
         }
+    }
 
+    private fun hookDisplayLaunchPermission(ctx: XposedRuntimeContext) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+
+        val className = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "com.android.server.wm.ActivityTaskSupervisor"
+        } else {
+            "com.android.server.wm.ActivityStackSupervisor"
+        }
+        runCatching {
+            ctx.hookAfter(ctx.findMethod(className) {
+                name == "isCallerAllowedToLaunchOnDisplay"
+                    && parameterCount == 4
+                    && parameterTypes[0] == Int::class.javaPrimitiveType
+                    && parameterTypes[1] == Int::class.javaPrimitiveType
+                    && parameterTypes[2] == Int::class.javaPrimitiveType
+                    && parameterTypes[3] == ActivityInfo::class.java
+            }) { param ->
+                if (param.result == false && param.args.getOrNull(2) == CoreManagerService.getDisplayId()) {
+                    param.result = true
+                    log(tagName, "hook isCallerAllowedToLaunchOnDisplay success")
+                }
+            }
+        }.onFailure {
+            log(tagName, "$className.isCallerAllowedToLaunchOnDisplay", it)
+        }
     }
 
     object Power {
-        private val powerPress by lazy {
-            if(!IsSystemEnv) return@lazy null
-            try{
-                findMethod("com.android.server.policy.PhoneWindowManager") {
-                    name == "powerPress"
-                            && parameterCount == 3
-                            && parameterTypes[0] == Long::class.javaPrimitiveType //eventTime
-                            && parameterTypes[1] == Int::class.javaPrimitiveType //count
-                            && parameterTypes[2] == Boolean::class.javaPrimitiveType //beganFromNonInteractive
-                }
-            } catch (e: Throwable){
-                log(tagName,  "Power PhoneWindowManager.powerPress", e)
-                null
-            }
-        }
-        private var hookPower : XC_MethodHook.Unhook? = null
-        fun hook(){
+        private var hookPower: ManagedHookHandle? = null
+
+        fun hook() {
             unHook()
-            hookPower = powerPress?.hookBefore {
-                if (!(it.args[2] as Boolean)) {
-                    CoreApi.toggleDisplayPower()
-                    it.abortMethod()
-                } else {
-                    CoreApi.displayPower(true)
+            val ctx = runtimeContext
+            if (!IsSystemEnv || ctx == null) return
+            hookPower = runCatching {
+                ctx.hookBefore(ctx.findMethod("com.android.server.policy.PhoneWindowManager") {
+                    name == "powerPress"
+                        && parameterCount == 3
+                        && parameterTypes[0] == Long::class.javaPrimitiveType
+                        && parameterTypes[1] == Int::class.javaPrimitiveType
+                        && parameterTypes[2] == Boolean::class.javaPrimitiveType
+                }) { param ->
+                    if (!(param.args[2] as Boolean)) {
+                        CoreApi.toggleDisplayPower()
+                        param.returnEarly(null)
+                    } else {
+                        CoreApi.displayPower(true)
+                    }
                 }
-            }
+            }.onFailure {
+                log(tagName, "Power PhoneWindowManager.powerPress", it)
+            }.getOrNull()
         }
-        fun unHook(){
+
+        fun unHook() {
             hookPower?.unhook()
             hookPower = null
         }
     }
+
     object FuckAppUseApplicationContext {
-        private val appInitUseDisplay: HashMap<String, Int> = hashMapOf()
-        private val activityTaskManagerService_startProcessAsync by lazy {
-            if(!IsSystemEnv) return@lazy null
-            try{
-                findMethod("com.android.server.wm.ActivityTaskManagerService"){
-                    name == "startProcessAsync"
-                }
-            } catch (e: Throwable){
-                log(tagName,  "FuckAppUseAppContext ActivityTaskManagerService.startProcessAsync method", e)
-                null
-            }
-        }
-        private val applicationThread_bindApplication by lazy {
-            if(!IsSystemEnv) return@lazy null
-            try{
-                findMethod("android.app.IApplicationThread\$Stub\$Proxy"){
-                    name == "bindApplication"
-                }
-            } catch (e: Throwable){
-                log(tagName,  "FuckAppUseAppContext IApplicationThread.bindApplication method", e)
-                null
-            }
-        }
+        private val appInitUseDisplay = Collections.synchronizedMap(HashMap<String, Int>())
+        private var activityTaskManagerServiceStartProcessAsyncHook: ManagedHookHandle? = null
+        private var applicationThreadBindApplicationHook: ManagedHookHandle? = null
 
-        private var activityTaskManagerService_startProcessAsync_hook : XC_MethodHook.Unhook? = null
-        private var applicationThread_bindApplication_hook : XC_MethodHook.Unhook? = null
-        fun hook(){
+        fun hook() {
             unHook()
-            activityTaskManagerService_startProcessAsync_hook  = activityTaskManagerService_startProcessAsync?.hookBefore { param ->
-                try {
-                    val activityRecord = param.args[0]
-                    val displayId = activityRecord.invokeMethod("getDisplayId") as Int
-                    val packageName = activityRecord.getObject("packageName") as String
-                    if(displayId == 0){
-                        if(appInitUseDisplay.containsKey(packageName)){
+            val ctx = runtimeContext
+            if (!IsSystemEnv || ctx == null) return
+
+            activityTaskManagerServiceStartProcessAsyncHook = runCatching {
+                ctx.hookBefore(ctx.findMethod("com.android.server.wm.ActivityTaskManagerService") {
+                    name == "startProcessAsync"
+                }) { param ->
+                    try {
+                        val activityRecord = param.args[0] ?: return@hookBefore
+                        val displayId = activityRecord.invokeMethod("getDisplayId") as Int
+                        val packageName = activityRecord.getObject("packageName") as String
+                        if (displayId == 0) {
                             appInitUseDisplay.remove(packageName)
+                            return@hookBefore
                         }
-                        return@hookBefore
+                        appInitUseDisplay[packageName] = displayId
+                    } catch (e: Exception) {
+                        log(tagName, "activityTaskManagerService_startProcessAsync Hook Exception", e)
                     }
-                    appInitUseDisplay[packageName] = displayId
-                } catch (e: Exception) {
-                    log(tagName, "activityTaskManagerService_startProcessAsync Hook Exception", e)
                 }
-            }
-            applicationThread_bindApplication_hook = applicationThread_bindApplication?.hookBefore { param ->
-                try {
-                    val configuration = param.args[15]
-                    if(configuration !is Configuration){
-                        return@hookBefore
-                    }
-                    val packageName = (param.args[0] as String).run {
-                        this.substringBeforeLast(":")
-                    }
-                    if(appInitUseDisplay.containsKey(packageName)){
-                        val densityDpi = CoreManagerService.getDensityDpi()
-                        if(densityDpi != 0){
-                            configuration.densityDpi = densityDpi
+            }.onFailure {
+                log(tagName, "FuckAppUseAppContext ActivityTaskManagerService.startProcessAsync method", it)
+            }.getOrNull()
+
+            applicationThreadBindApplicationHook = runCatching {
+                ctx.hookBefore(ctx.findMethod("android.app.IApplicationThread\$Stub\$Proxy") {
+                    name == "bindApplication"
+                }) { param ->
+                    try {
+                        val configuration = param.args.getOrNull(15)
+                        if (configuration !is Configuration) {
+                            return@hookBefore
                         }
+                        val packageName = (param.args[0] as String).substringBeforeLast(":")
+                        if (appInitUseDisplay.containsKey(packageName)) {
+                            val densityDpi = CoreManagerService.getDensityDpi()
+                            if (densityDpi != 0) {
+                                configuration.densityDpi = densityDpi
+                            }
+                        }
+                    } catch (e: Exception) {
+                        log(tagName, "applicationThread_bindApplication Hook Exception", e)
                     }
-                } catch (e: Exception) {
-                    log(tagName, "applicationThread_bindApplication Hook Exception", e)
                 }
-            }
+            }.onFailure {
+                log(tagName, "FuckAppUseAppContext IApplicationThread.bindApplication method", it)
+            }.getOrNull()
         }
 
-        fun unHook(){
+        fun unHook() {
             appInitUseDisplay.clear()
-            activityTaskManagerService_startProcessAsync_hook?.apply { unhook() }
-            activityTaskManagerService_startProcessAsync_hook = null
+            activityTaskManagerServiceStartProcessAsyncHook?.unhook()
+            activityTaskManagerServiceStartProcessAsyncHook = null
 
-            applicationThread_bindApplication_hook?.apply { unhook() }
-            applicationThread_bindApplication_hook = null
+            applicationThreadBindApplicationHook?.unhook()
+            applicationThreadBindApplicationHook = null
         }
-
     }
 }

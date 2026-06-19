@@ -1,6 +1,7 @@
 package io.github.nitsuya.aa.display.xposed.hook.aa
 
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -12,26 +13,18 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
-import com.github.kyuubiran.ezxhelper.init.InitFields
-import com.github.kyuubiran.ezxhelper.utils.argTypes
-import com.github.kyuubiran.ezxhelper.utils.findConstructor
-import com.github.kyuubiran.ezxhelper.utils.findMethod
-import com.github.kyuubiran.ezxhelper.utils.getIdByName
-import com.github.kyuubiran.ezxhelper.utils.getObjectOrNull
-import com.github.kyuubiran.ezxhelper.utils.hookAfter
-import com.github.kyuubiran.ezxhelper.utils.hookBefore
-import com.github.kyuubiran.ezxhelper.utils.loadClass
-import com.github.kyuubiran.ezxhelper.utils.staticMethod
-import de.robv.android.xposed.callbacks.XC_LoadPackage
-import de.robv.android.xposed.callbacks.XCallback
+import io.github.libxposed.api.XposedInterface
 import io.github.nitsuya.aa.display.BuildConfig
 import io.github.nitsuya.aa.display.R
 import io.github.nitsuya.aa.display.service.AaActivityService
 import io.github.nitsuya.aa.display.util.AABroadcastConst
 import io.github.nitsuya.aa.display.util.AADisplayConfig
+import io.github.nitsuya.aa.display.xposed.XposedRuntimeContext
+import io.github.nitsuya.aa.display.xposed.getIdByName
+import io.github.nitsuya.aa.display.xposed.getObjectOrNull
 import io.github.nitsuya.aa.display.xposed.hook.AaHook
-import io.github.nitsuya.aa.display.xposed.hook.abortMethod
 import io.github.nitsuya.aa.display.xposed.log
+import io.github.nitsuya.aa.display.xposed.staticMethod
 import io.github.nitsuya.template.bases.runMain
 import io.github.qauxv.ui.CommonContextWrapper
 import kotlinx.coroutines.delay
@@ -42,6 +35,9 @@ import java.lang.reflect.Method
 
 object AaUiHook: AaHook() {
     override val tagName: String = "AAD_AaUiHook"
+
+    private lateinit var runtimeCtx: XposedRuntimeContext
+    private lateinit var targetContext: Context
 
     private var layoutInfoConstructor: Constructor<*>? = null
     private var startMethod: Method? = null
@@ -113,7 +109,9 @@ object AaUiHook: AaHook() {
         return processProjection == processName
     }
 
-    override fun loadDexClass(bridge: DexKitBridge, lpparam: XC_LoadPackage.LoadPackageParam) {
+    override fun loadDexClass(bridge: DexKitBridge, ctx: XposedRuntimeContext) {
+        runtimeCtx = ctx
+        targetContext = ctx.appContext ?: throw IllegalStateException("AaUiHook requires target app context")
         val classes = bridge.findClass {
             searchPackages = listOf("")
             matcher {
@@ -134,41 +132,42 @@ object AaUiHook: AaHook() {
         }
         // 构造器签名解析失败也只记录不抛，理由同上；后续 hookLayout 会因 ctor==null 自动跳过。
         layoutInfoConstructor = runCatching {
-            resolveLayoutInfoConstructor(classes[0].name)
+            resolveLayoutInfoConstructor(ctx, classes[0].name)
         }.onFailure { e ->
             log(tagName, "AaUiHook: resolveLayoutInfoConstructor failed for ${classes[0].name}", e)
         }.getOrNull()
 
         try{
-            startMethod = loadClass("com.google.android.projection.gearhead.service.CarSystemUiControllerService").staticMethod("a", null, argTypes(Intent::class.java))
+            startMethod = ctx.loadClass("com.google.android.projection.gearhead.service.CarSystemUiControllerService")
+                .staticMethod("a", null, Intent::class.java)
         } catch (e: Throwable){
             log(tagName,  "AaUiHook: not found CarSystemUiControllerService.a static method", e)
         }
 
         resLayoutFacetBarIds.clear()
         for (fbn in arrayOf("gh_coolwalk_vertical_facet_bar", "gh_coolwalk_facet_bar", "gh_coolwalk_facet_bar_rhd")) {
-            val fbid = InitFields.appContext.resources.getIdentifier(fbn, "layout", InitFields.appContext.packageName)
+            val fbid = targetContext.resources.getIdentifier(fbn, "layout", targetContext.packageName)
             if (fbid != 0) resLayoutFacetBarIds.add(fbid) else log(tagName, "AaUiHook: facet bar layout '$fbn' not found, skip")
         }
         log(tagName, "AaUiHook: facet bar layout ids resolved=$resLayoutFacetBarIds")
-        resIdStatusBarId = getIdByName("status_bar")//android.support.p001v4.app.FragmentContainerView
-        resIdAssistantIconContainerId = getIdByName("assistant_icon_container")//com.google.android.apps.auto.components.coolwalk.focusring.FocusInterceptor
-        resIdAssistantIconId = getIdByName("assistant_icon")//com.google.android.apps.auto.components.coolwalk.button.CoolwalkButton
-        resIdLauncherAndDashboardIconContainerId = getIdByName("launcher_and_dashboard_icon_container")//com.google.android.apps.auto.components.coolwalk.focusring.FocusInterceptor
-        resIdLauncherAndDashboardIconId = getIdByName("launcher_and_dashboard_icon")//com.google.android.apps.auto.components.coolwalk.button.CoolwalkButton
+        resIdStatusBarId = targetContext.getIdByName("status_bar")//android.support.p001v4.app.FragmentContainerView
+        resIdAssistantIconContainerId = targetContext.getIdByName("assistant_icon_container")//com.google.android.apps.auto.components.coolwalk.focusring.FocusInterceptor
+        resIdAssistantIconId = targetContext.getIdByName("assistant_icon")//com.google.android.apps.auto.components.coolwalk.button.CoolwalkButton
+        resIdLauncherAndDashboardIconContainerId = targetContext.getIdByName("launcher_and_dashboard_icon_container")//com.google.android.apps.auto.components.coolwalk.focusring.FocusInterceptor
+        resIdLauncherAndDashboardIconId = targetContext.getIdByName("launcher_and_dashboard_icon")//com.google.android.apps.auto.components.coolwalk.button.CoolwalkButton
 
-        resLayoutLeftResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_canonical_vertical_rail_lhd", "layout", InitFields.appContext.packageName)
-        resLayoutRightResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_canonical_vertical_rail_rhd", "layout", InitFields.appContext.packageName)
+        resLayoutLeftResourceId = targetContext.resources.getIdentifier("sys_ui_layout_canonical_vertical_rail_lhd", "layout", targetContext.packageName)
+        resLayoutRightResourceId = targetContext.resources.getIdentifier("sys_ui_layout_canonical_vertical_rail_rhd", "layout", targetContext.packageName)
 
         // AA 16.7+ cielo 竖排栏资源（旧版本 getIdentifier 返回 0，自然回退到旧资源）
-        resLayoutLeftCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_lhd", "layout", InitFields.appContext.packageName)
-        resLayoutRightCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_rhd", "layout", InitFields.appContext.packageName)
+        resLayoutLeftCieloResourceId = targetContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_lhd", "layout", targetContext.packageName)
+        resLayoutRightCieloResourceId = targetContext.resources.getIdentifier("sys_ui_cielo_layout_canonical_vertical_rail_rhd", "layout", targetContext.packageName)
 
         // 竖屏底栏：AA 自带 portrait 布局（legacy 优先，cielo 兜底；无 lhd/rhd）
-        resLayoutPortraitResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_portrait", "layout", InitFields.appContext.packageName)
-        resLayoutShortPortraitResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_layout_short_portrait", "layout", InitFields.appContext.packageName)
-        resLayoutPortraitCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_portrait", "layout", InitFields.appContext.packageName)
-        resLayoutShortPortraitCieloResourceId = InitFields.appContext.resources.getIdentifier("sys_ui_cielo_layout_short_portrait", "layout", InitFields.appContext.packageName)
+        resLayoutPortraitResourceId = targetContext.resources.getIdentifier("sys_ui_layout_portrait", "layout", targetContext.packageName)
+        resLayoutShortPortraitResourceId = targetContext.resources.getIdentifier("sys_ui_layout_short_portrait", "layout", targetContext.packageName)
+        resLayoutPortraitCieloResourceId = targetContext.resources.getIdentifier("sys_ui_cielo_layout_portrait", "layout", targetContext.packageName)
+        resLayoutShortPortraitCieloResourceId = targetContext.resources.getIdentifier("sys_ui_cielo_layout_short_portrait", "layout", targetContext.packageName)
         log(tagName, "AaUiHook: portrait res legacy(std=$resLayoutPortraitResourceId,short=$resLayoutShortPortraitResourceId) cielo(std=$resLayoutPortraitCieloResourceId,short=$resLayoutShortPortraitCieloResourceId)")
 
         assert(resLayoutFacetBarIds.isNotEmpty()) { "no facet bar layout id resolved" }
@@ -186,7 +185,9 @@ object AaUiHook: AaHook() {
 
     }
 
-    override fun hook(config: SharedPreferences, lpparam: XC_LoadPackage.LoadPackageParam) {
+    override fun hook(config: SharedPreferences, ctx: XposedRuntimeContext) {
+        runtimeCtx = ctx
+        targetContext = ctx.appContext ?: targetContext
         log(tagName,  "AaUiHook: ~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         hookBaseClick()
         hookLayout()
@@ -260,8 +261,8 @@ object AaUiHook: AaHook() {
             log(tagName, "AaUiHook: layoutInfoConstructor unresolved, skip hookLayout")
             return
         }
-        ctor.hookAfter { param -> log(tagName, param.thisObject.toString()) }
-        ctor.hookBefore { param ->
+        runtimeCtx.hookAfter(ctor) { param -> log(tagName, param.thisObject.toString()) }
+        runtimeCtx.hookBefore(ctor) { param ->
             try {
                 if (param.args.size < 5) return@hookBefore
                 val layoutTypeArg = param.args[3]
@@ -349,14 +350,14 @@ object AaUiHook: AaHook() {
         }
     }
 
-    private fun resolveLayoutInfoConstructor(className: String): Constructor<*> {
+    private fun resolveLayoutInfoConstructor(ctx: XposedRuntimeContext, className: String): Constructor<*> {
         // New AA versions frequently change obfuscated ctor tails; keep only stable prefix checks.
         log(tagName, "AaUiHook: resolveLayoutInfoConstructor for $className")
 
         // strict A — AA 16.7 cielo：(int,int,int, <layoutType enum 非基本类型>, bool, bool,
         //            <carDisplayUiInfo 非基本类型>, bool, bool, bool) 共 10 参
         val strictMatch167 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 10
                     && parameterTypes[0] == Int::class.javaPrimitiveType
                     && parameterTypes[1] == Int::class.javaPrimitiveType
@@ -377,7 +378,7 @@ object AaUiHook: AaHook() {
 
         // strict B — AA 16.1 及更早：(int,int,int,int, bool, bool, ?, bool) 共 8 参
         val strictMatch161 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 8
                     && parameterTypes[0] == Int::class.javaPrimitiveType
                     && parameterTypes[1] == Int::class.javaPrimitiveType
@@ -395,7 +396,7 @@ object AaUiHook: AaHook() {
 
         // fallback — 仅锁定最稳定的前缀 (int,int,int, layoutType, isRightHandDrive:bool)，
         // 不再要求 layoutType 是 int（16.7 已变 enum），挑参数最多的那个有参构造器。
-        val clazz = loadClass(className)
+        val clazz = ctx.loadClass(className)
         val fallback = clazz.declaredConstructors
             .filter { ctor ->
                 val p = ctor.parameterTypes
@@ -418,13 +419,13 @@ object AaUiHook: AaHook() {
         val enableDefVoiceAssist = AADisplayConfig.VoiceAssistShell.get(config).isNullOrBlank()
         val closeLauncherDashboard = AADisplayConfig.CloseLauncherDashboard.get(config)
         val autoOpen = AADisplayConfig.AutoOpen.get(config)
-        findMethod(LayoutInflater::class.java) {
+        runtimeCtx.hookAfter(runtimeCtx.findMethod(LayoutInflater::class.java) {
             name == "inflate"
             && parameterCount == 3
             && parameterTypes[0] == Int::class.javaPrimitiveType // resource
             && parameterTypes[1] == ViewGroup::class.java // root
             && parameterTypes[2] == Boolean::class.javaPrimitiveType // attachToRoot
-        }.hookAfter { param ->
+        }) { param ->
             if (param.args[0] as Int !in resLayoutFacetBarIds) {
                 return@hookAfter
             }
@@ -615,35 +616,35 @@ object AaUiHook: AaHook() {
 
     private fun hookBaseClick() {
         try {
-            findMethod(View::class.java) {
+            runtimeCtx.hookBefore(runtimeCtx.findMethod(View::class.java) {
                 name == "setOnLongClickListener"
                 && parameterCount == 1
                 && parameterTypes[0] == View.OnLongClickListener::class.java
-            }.hookBefore(XCallback.PRIORITY_LOWEST) {
+            }, XposedInterface.PRIORITY_LOWEST) {
                 if (it.args[0] is FinallyListener) return@hookBefore
                 val view = it.thisObject as View
                 if (!view.hasOnLongClickListeners() || (view.getObjectOrNull("mListenerInfo")?.getObjectOrNull("mOnLongClickListener") is FinallyListener).not()) {
                     return@hookBefore
                 }
                 view.setOnOriLongClickListener(it.args[0] as View.OnLongClickListener)
-                it.abortMethod()
+                it.result = null
             }
         } catch (e: Throwable) {
             log(tagName, "hook View.setOnLongClickListener", e)
         }
         try {
-            findMethod(View::class.java) {
+            runtimeCtx.hookBefore(runtimeCtx.findMethod(View::class.java) {
                 name == "setOnClickListener"
                 && parameterCount == 1
                 && parameterTypes[0] == View.OnClickListener::class.java
-            }.hookBefore(XCallback.PRIORITY_LOWEST) {
+            }, XposedInterface.PRIORITY_LOWEST) {
                 if (it.args[0] is FinallyListener) return@hookBefore
                 val view = it.thisObject as View
                 if (!view.hasOnClickListeners() || (view.getObjectOrNull("mListenerInfo")?.getObjectOrNull("mOnClickListener") is FinallyListener).not()) {
                     return@hookBefore
                 }
                 view.setOnOriClickListener(it.args[0] as View.OnClickListener)
-                it.abortMethod()
+                it.result = null
             }
         } catch (e: Throwable) {
             log(tagName, "hook View.setOnClickListener", e)
@@ -655,7 +656,7 @@ object AaUiHook: AaHook() {
             return
         }
         try{
-            findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams"){
+            runtimeCtx.hookBefore(runtimeCtx.findConstructor("com.google.android.gms.car.ProjectionWindowDecorationParams"){
                 parameterCount == 9
                 && parameterTypes[0] == Int::class.javaPrimitiveType //outlineLeft
                 && parameterTypes[1] == Int::class.javaPrimitiveType //outlineTop
@@ -666,7 +667,7 @@ object AaUiHook: AaHook() {
                 && parameterTypes[6] == Int::class.javaPrimitiveType //antiAliasingType
                 && parameterTypes[7] == Boolean::class.javaPrimitiveType //showOutlinesOnlyWhenInset
                 && parameterTypes[8] == Boolean::class.javaPrimitiveType //showRoundedCornersOnlyWhenInset
-            }.hookBefore { param ->
+            }) { param ->
                 param.args[5] = 0
             }
         } catch (e: Throwable) {

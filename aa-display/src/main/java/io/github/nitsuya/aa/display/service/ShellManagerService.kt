@@ -20,7 +20,7 @@ class ShellManagerService: Service() {
     }
     override fun onCreate() {
         super.onCreate()
-        config = this.getSharedPreferences(AADisplayConfig.ConfigName, MODE_WORLD_READABLE)
+        config = this.getSharedPreferences(AADisplayConfig.ConfigName, MODE_PRIVATE)
     }
     override fun onBind(intent: Intent?): IBinder = stub
 }

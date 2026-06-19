@@ -1,10 +1,8 @@
 package io.github.nitsuya.aa.display.xposed.hook.aa
 
 import android.content.SharedPreferences
-import com.github.kyuubiran.ezxhelper.utils.findMethod
-import com.github.kyuubiran.ezxhelper.utils.hookAfter
-import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.nitsuya.aa.display.BuildConfig
+import io.github.nitsuya.aa.display.xposed.XposedRuntimeContext
 import io.github.nitsuya.aa.display.xposed.hook.AaHook
 import io.github.nitsuya.aa.display.xposed.log
 import org.luckypray.dexkit.DexKitBridge
@@ -23,7 +21,7 @@ object AaSignatureHook: AaHook() {
         return processCar == processName
     }
 
-    override fun loadDexClass(bridge: DexKitBridge, lpparam: XC_LoadPackage.LoadPackageParam) {
+    override fun loadDexClass(bridge: DexKitBridge, ctx: XposedRuntimeContext) {
         val methodMatcher = MethodMatcher().apply{
             modifiers = Modifier.PUBLIC or Modifier.FINAL
             returnType = "boolean"
@@ -53,14 +51,14 @@ object AaSignatureHook: AaHook() {
             throw NoSuchMethodException("AaSignatureHook: not found Check method：${classes.size}")
         }
         val methodData = methodDatas[0]
-        method = findMethod(methodData.className) {
+        method = ctx.findMethod(methodData.className) {
             name == methodData.methodName
             && parameterCount == 1
             && parameterTypes[0] == String::class.java
         }
     }
-    override fun hook(config: SharedPreferences, lpparam: XC_LoadPackage.LoadPackageParam) {
-        method.hookAfter { param ->
+    override fun hook(config: SharedPreferences, ctx: XposedRuntimeContext) {
+        ctx.hookAfter(method) { param ->
             if((param.args[0] as String) == BuildConfig.APPLICATION_ID){
                 param.result = true
             }

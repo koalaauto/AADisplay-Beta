@@ -5,8 +5,6 @@ import android.app.*
 import android.content.*
 import android.os.*
 import android.view.*
-import com.github.kyuubiran.ezxhelper.utils.*
-import de.robv.android.xposed.XSharedPreferences
 import io.github.nitsuya.aa.display.BuildConfig
 import io.github.nitsuya.aa.display.model.RecentTask
 import io.github.nitsuya.aa.display.ui.aa.AaVirtualDisplayAdapter
@@ -38,14 +36,21 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
                 systemContextHost = value.createContext(value.params ?: ContextParams.Builder().build())
             }
 
-        val config: XSharedPreferences? by lazy {
-            XSharedPreferences(BuildConfig.APPLICATION_ID, AADisplayConfig.ConfigName).let { config ->
-                if(!config.file.canRead())
-                    null
-                else
-                    config
-            }
+        @Volatile
+        private var configProvider: ConfigProvider = EmptyConfigProvider(TAG)
+
+        @Volatile
+        private var cachedConfig: SharedPreferences? = null
+
+        fun setConfigProvider(provider: ConfigProvider) {
+            configProvider = provider
+            cachedConfig = null
         }
+
+        val config: SharedPreferences?
+            get() = cachedConfig ?: configProvider.getPreferences().also {
+                cachedConfig = it
+            }
 
         private var mDisplayWindow: DisplayWindow? = null
         private var mAaVirtualDisplayAdapter: AaVirtualDisplayAdapter? = null
@@ -139,8 +144,9 @@ class CoreManagerService private constructor(): ICoreManager.Stub() {
                 listener.onAvailableDisplay(this.mDisplayId, false)
                 return@runMain
             }
+            configProvider.reload()
+            cachedConfig = null
             config?.apply {
-                reload()
                 log(TAG, "config: ${this.all.map { "${it.key}=${it.value}[${it.value?.javaClass?.name}]" }.joinToString() }")
             }
             AaVirtualDisplayAdapter(systemContext, config){

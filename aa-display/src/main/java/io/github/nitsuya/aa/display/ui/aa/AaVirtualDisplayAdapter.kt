@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -18,13 +19,17 @@ import android.view.*
 import android.window.TaskSnapshot
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.drawable.toBitmap
-import com.github.kyuubiran.ezxhelper.utils.*
-import de.robv.android.xposed.XSharedPreferences
 import io.github.nitsuya.aa.display.BuildConfig
 import io.github.nitsuya.aa.display.model.RecentTask
 import io.github.nitsuya.aa.display.model.RecentTaskInfo
 import io.github.nitsuya.aa.display.service.ShellManagerService
 import io.github.nitsuya.aa.display.util.AADisplayConfig
+import io.github.nitsuya.aa.display.util.argTypes
+import io.github.nitsuya.aa.display.util.args
+import io.github.nitsuya.aa.display.util.getObjectAs
+import io.github.nitsuya.aa.display.util.invokeMethod
+import io.github.nitsuya.aa.display.util.newInstance
+import io.github.nitsuya.aa.display.util.tryOrNull
 import io.github.nitsuya.aa.display.service.IShellManager
 import io.github.nitsuya.aa.display.xposed.CoreManagerService
 import io.github.nitsuya.aa.display.xposed.TipUtil
@@ -35,7 +40,7 @@ import io.github.nitsuya.template.bases.runMain
 
 class AaVirtualDisplayAdapter(
       private val context: Context
-    , private val config: XSharedPreferences?
+    , private val config: SharedPreferences?
     , private val onReady: (suspend AaVirtualDisplayAdapter.(it:AaVirtualDisplayAdapter) -> Unit)
 ) {
     companion object {

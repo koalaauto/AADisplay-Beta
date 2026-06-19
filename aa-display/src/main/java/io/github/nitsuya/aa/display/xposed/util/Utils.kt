@@ -1,14 +1,11 @@
 package io.github.nitsuya.aa.display.xposed
 
-import de.robv.android.xposed.XposedBridge
+import android.util.Log
 
 fun log(tag: String, message: String) {
-    XposedBridge.log("[$tag] $message")
+    XposedLogAdapter.log(Log.INFO, tag, message)
 }
 
 fun log(tag: String, message: String, t: Throwable?) {
-    XposedBridge.log("[$tag] $message")
-    if(t != null){
-        XposedBridge.log(t)
-    }
+    XposedLogAdapter.log(Log.ERROR, tag, message, t)
 }

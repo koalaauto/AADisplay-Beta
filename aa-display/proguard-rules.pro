@@ -1,1 +1,2 @@
 -keep class io.github.nitsuya.aa.display.** { *; }
+-keep class io.github.nitsuya.aa.display.xposed.LibXposedInit { *; }

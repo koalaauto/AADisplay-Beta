@@ -5,13 +5,8 @@ import android.content.pm.InstallSourceInfo
 import android.graphics.Point
 import android.graphics.Rect
 import android.util.Size
-import com.github.kyuubiran.ezxhelper.utils.findConstructor
-import com.github.kyuubiran.ezxhelper.utils.findMethod
-import com.github.kyuubiran.ezxhelper.utils.hookAfter
-import com.github.kyuubiran.ezxhelper.utils.hookBefore
-import com.github.kyuubiran.ezxhelper.utils.loadClass
-import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.nitsuya.aa.display.util.AADisplayConfig
+import io.github.nitsuya.aa.display.xposed.XposedRuntimeContext
 import io.github.nitsuya.aa.display.xposed.hook.AaHook
 import io.github.nitsuya.aa.display.xposed.log
 import org.luckypray.dexkit.DexKitBridge
@@ -31,7 +26,7 @@ object AaDpiHook: AaHook() {
         return processCar == processName
     }
 
-    override fun loadDexClass(bridge: DexKitBridge, lpparam: XC_LoadPackage.LoadPackageParam) {
+    override fun loadDexClass(bridge: DexKitBridge, ctx: XposedRuntimeContext) {
         val classes = bridge.findClass {
             searchPackages = listOf("")
             matcher {
@@ -51,13 +46,13 @@ object AaDpiHook: AaHook() {
             return
         }
         displayParamsConstructor = runCatching {
-            resolveDisplayParamsConstructor(classes[0].name)
+            resolveDisplayParamsConstructor(ctx, classes[0].name)
         }.onFailure { e ->
             log(tagName, "AaDpiHook: resolveDisplayParamsConstructor failed for ${classes[0].name}", e)
         }.getOrNull()
 
         carDisplayConstructor = runCatching {
-            resolveCarDisplayConstructor()
+            resolveCarDisplayConstructor(ctx)
         }.onFailure { e ->
             log(tagName, "AaDpiHook: resolveCarDisplayConstructor failed", e)
         }.getOrNull()
@@ -67,12 +62,12 @@ object AaDpiHook: AaHook() {
     //  - 16.1：18 参，... CarDisplayUiFeatures, int(bitmask)
     //  - 16.7：19 参，新增 CarDisplayBlendedUiConfig 插在 CarDisplayUiFeatures 之后、bitmask 之前
     // densityDpi 始终 index 8。strict 锁定 16.7/16.1 两套签名，fallback 只锁稳定前缀。
-    private fun resolveDisplayParamsConstructor(className: String): Constructor<*> {
+    private fun resolveDisplayParamsConstructor(ctx: XposedRuntimeContext, className: String): Constructor<*> {
         log(tagName, "AaDpiHook: resolveDisplayParamsConstructor for $className")
 
         // strict A — AA 16.7：19 参
         val strict167 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 19
                 && (0..8).all { parameterTypes[it] == Int::class.javaPrimitiveType }    // 0..7 dims/fps + 8 densityDpi
                 && parameterTypes[9]        == Float::class.javaPrimitiveType            // pixelAspectRatio
@@ -94,7 +89,7 @@ object AaDpiHook: AaHook() {
 
         // strict B — AA 16.1 及更早：18 参
         val strict161 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 18
                 && (0..8).all { parameterTypes[it] == Int::class.javaPrimitiveType }
                 && parameterTypes[9]        == Float::class.javaPrimitiveType
@@ -115,7 +110,7 @@ object AaDpiHook: AaHook() {
 
         // fallback — 只锁稳定前缀：前 9 个 int（含 index 8 densityDpi）+ Size 在某处出现，
         // 取参数最多的那个候选构造器。
-        val clazz = loadClass(className)
+        val clazz = ctx.loadClass(className)
         val fallback = clazz.declaredConstructors
             .filter { ctor ->
                 val p = ctor.parameterTypes
@@ -134,13 +129,13 @@ object AaDpiHook: AaHook() {
     //  - 16.1：9 参，... int initialContentType, String configurationId
     //  - 16.7：10 参，末尾追加 CarDisplayBlendedUiConfig
     // carDisplayType=args[1]、displayDpi=args[2] 位置跨版本不变。
-    private fun resolveCarDisplayConstructor(): Constructor<*> {
+    private fun resolveCarDisplayConstructor(ctx: XposedRuntimeContext): Constructor<*> {
         val className = "com.google.android.gms.car.display.CarDisplay"
         log(tagName, "AaDpiHook: resolveCarDisplayConstructor for $className")
 
         // strict A — AA 16.7：10 参
         val strict167 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 10
                 && parameterTypes[0].name == "com.google.android.gms.car.display.CarDisplayId"
                 && parameterTypes[1] == Int::class.javaPrimitiveType    // carDisplayType
@@ -161,7 +156,7 @@ object AaDpiHook: AaHook() {
 
         // strict B — AA 16.1 及更早：9 参
         val strict161 = runCatching {
-            findConstructor(className) {
+            ctx.findConstructor(className) {
                 parameterCount == 9
                 && parameterTypes[0].name == "com.google.android.gms.car.display.CarDisplayId"
                 && parameterTypes[1] == Int::class.javaPrimitiveType
@@ -180,7 +175,7 @@ object AaDpiHook: AaHook() {
         }
 
         // fallback — 只锁稳定前缀：CarDisplayId, int(carDisplayType), int(displayDpi), Point, ...
-        val clazz = loadClass(className)
+        val clazz = ctx.loadClass(className)
         val fallback = clazz.declaredConstructors
             .filter { ctor ->
                 val p = ctor.parameterTypes
@@ -197,15 +192,15 @@ object AaDpiHook: AaHook() {
         return fallback
     }
 
-    override fun hook(config: SharedPreferences, lpparam: XC_LoadPackage.LoadPackageParam) {
+    override fun hook(config: SharedPreferences, ctx: XposedRuntimeContext) {
         try {
             val androidAutoDpi = AADisplayConfig.AndroidAutoDpi.get(config)
             if (androidAutoDpi < 50) return
 
             val dpCtor = displayParamsConstructor
             if (dpCtor != null) {
-                dpCtor.hookAfter { param -> log(tagName, param.thisObject.toString()) }
-                dpCtor.hookBefore { param ->
+                ctx.hookAfter(dpCtor) { param -> log(tagName, param.thisObject.toString()) }
+                ctx.hookBefore(dpCtor) { param ->
                     try {
                         param.args[DISPLAY_PARAMS_DPI_ARG] = androidAutoDpi
                     } catch (e: Throwable) {
@@ -218,8 +213,8 @@ object AaDpiHook: AaHook() {
 
             val cdCtor = carDisplayConstructor
             if (cdCtor != null) {
-                cdCtor.hookAfter { param -> log(tagName, param.thisObject.toString()) }
-                cdCtor.hookBefore { param ->
+                ctx.hookAfter(cdCtor) { param -> log(tagName, param.thisObject.toString()) }
+                ctx.hookBefore(cdCtor) { param ->
                     try {
                         if (param.args[1] == 0 && param.args[2] != androidAutoDpi) {
                             param.args[2] = androidAutoDpi

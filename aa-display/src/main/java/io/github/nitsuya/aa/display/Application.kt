@@ -2,11 +2,13 @@ package io.github.nitsuya.aa.display
 
 import android.content.Context
 import android.os.Process
-import com.github.kyuubiran.ezxhelper.utils.tryOrNull
 import com.google.android.material.color.DynamicColors
 import com.topjohnwu.superuser.Shell
+import io.github.nitsuya.aa.display.util.XposedConfigSync
+import io.github.nitsuya.aa.display.util.tryOrNull
 import io.github.nitsuya.aa.display.xposed.CoreManagerService
 import io.github.nitsuya.aa.display.xposed.CoreManager
+import io.github.nitsuya.aa.display.xposed.ModuleResourceBridge
 
 
 val IsSystemEnv by lazy {
@@ -27,7 +29,9 @@ class Application: android.app.Application() {
 
     override fun onCreate() {
         super.onCreate()
+        ModuleResourceBridge.bind(applicationInfo)
         DynamicColors.applyToActivitiesIfAvailable(this)
+        XposedConfigSync.init(this)
     }
 
     override fun attachBaseContext(base: Context?) {

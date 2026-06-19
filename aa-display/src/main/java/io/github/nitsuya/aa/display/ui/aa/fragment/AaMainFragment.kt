@@ -10,8 +10,6 @@ import android.support.car.CarConnectionCallback
 import android.view.*
 import androidx.core.content.ContextCompat
 import androidx.core.view.InputDeviceCompat
-import androidx.media.MediaBrowserServiceCompat
-import com.github.kyuubiran.ezxhelper.utils.tryOrNull
 import com.google.android.gms.car.CarFirstPartyManager
 import com.topjohnwu.superuser.Shell
 import io.github.duzhaokun123.template.bases.BaseFragment
@@ -20,6 +18,7 @@ import io.github.nitsuya.aa.display.databinding.FragmentAaMainBinding
 import io.github.nitsuya.aa.display.ui.aa.AaDisplayActivityKt
 import io.github.nitsuya.aa.display.util.AABroadcastConst
 import io.github.nitsuya.aa.display.util.AADisplayConfig
+import io.github.nitsuya.aa.display.util.tryOrNull
 import io.github.nitsuya.aa.display.util.getGmsCarFirstPartyManager
 import io.github.nitsuya.aa.display.util.startCarAaDisplay
 import io.github.nitsuya.aa.display.util.startCarTelecom
@@ -148,7 +147,7 @@ class AaMainFragment : BaseFragment<FragmentAaMainBinding>(FragmentAaMainBinding
     }
 
     override fun initViews() {
-        config = this.requireContext().getSharedPreferences(AADisplayConfig.ConfigName, MediaBrowserServiceCompat.MODE_WORLD_READABLE)
+        config = this.requireContext().getSharedPreferences(AADisplayConfig.ConfigName, Context.MODE_PRIVATE)
         baseBinding.tvDisplay.post  {
             // 仅这里建 adapter + 全套 setup（触摸/接收器/Car）。**不**预设 lastApplied，
             // 把 VD 尺寸的权威来源交给 surface 回调（syncVd）—— post() 采样可能过早/过时，

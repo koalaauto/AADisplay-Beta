@@ -33,11 +33,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.github.kyuubiran.ezxhelper.init.EzXHelperInit;
-
 import java.util.Objects;
 
 import io.github.nitsuya.aa.display.R;
+import io.github.nitsuya.aa.display.xposed.ModuleResourceBridge;
 import io.github.qauxv.util.SavedInstanceStatePatchedClassReferencer;
 
 /**
@@ -69,7 +68,7 @@ public class CommonContextWrapper extends ContextThemeWrapper {
         if (configuration != null) {
             mOverrideResources = base.createConfigurationContext(configuration).getResources();
         }
-        EzXHelperInit.INSTANCE.addModuleAssetPath(getResources());
+        ModuleResourceBridge.addModuleAssetPath(getResources());
     }
 
     private ClassLoader mXref = null;

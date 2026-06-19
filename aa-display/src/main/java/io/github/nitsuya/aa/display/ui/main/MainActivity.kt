@@ -9,7 +9,6 @@ import android.view.*
 import android.widget.Toast
 import androidx.core.net.toUri
 import androidx.core.view.MenuProvider
-import com.github.kyuubiran.ezxhelper.utils.tryOrNull
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.topjohnwu.superuser.Shell
