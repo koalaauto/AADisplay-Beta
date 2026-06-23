@@ -1,30 +1,19 @@
 # AADisplay-Beta
 
-[![AADisplay-Beta](https://img.shields.io/badge/AADisplayBeta-Project-blue?logo=github)](https://github.com/bikekoala/AADisplay-Beta)
-[![GitHub Release](https://img.shields.io/github/v/release/Xposed-Modules-Repo/io.github.bikekoala.aa.display.beta)](https://github.com/Xposed-Modules-Repo/io.github.bikekoala.aa.display.beta/releases)
-![Xposed Module](https://img.shields.io/badge/Xposed-Module-blue)
-![Android SDK](https://img.shields.io/badge/Android%20SDK-min%2031%20%C2%B7%20target%2036-brightgreen?logo=android)
+> ⚠️ **Archived & unmaintained.** A personal fork of [`Nitsuya/AADisplay`](https://github.com/Nitsuya/AADisplay) for experimenting with mirroring apps onto the Android Auto screen via a `VirtualDisplay`. No longer developed — kept here for reference only. Still licensed under GPL-3.0, same as upstream.
 
-A personal fork of [`Nitsuya/AADisplay`](https://github.com/Nitsuya/AADisplay) — an Xposed / LSPosed module that mirrors almost any app onto the Android Auto screen via a VirtualDisplay.
+## Where the project went
 
-## Requirements
+**Want the open-source module?** Head upstream to [`Nitsuya/AADisplay`](https://github.com/Nitsuya/AADisplay) — the original open-source project for the LSPosed / Xposed approach.
 
-- Android 12+ (SDK 31+; Android 10–11 unsupported)
-- Rooted device with **LSPosed** (or a compatible Xposed environment)
-- Working Android Auto (`com.google.android.projection.gearhead`)
+**Want a maintained, ready-to-use app?** We took what we learned here and *independently* built **KoalaMirror** — an actively-developed product for casting Android apps onto the Android Auto screen, with regular updates and proper support. No Xposed-module tinkering required.
 
-> Some ROMs may be unstable or crash — use at your own risk.
+👉 **[koalamirror.com](https://koalamirror.com)**
 
-## Usage
+---
 
-1. Enable the module in **LSPosed**, scoped to **System Framework** + **Android Auto**.
-2. Set your launcher's package name in the module settings.
-3. Optional: tune **DPI** for the car screen, or inject Android Auto **properties**.
-
-Root is only used for user-configured shell commands — deny it if you don't need that.
-
-For build instructions and full details, see the upstream project: [`Nitsuya/AADisplay`](https://github.com/Nitsuya/AADisplay).
+Thanks to [@Nitsuya](https://github.com/Nitsuya) and to everyone who starred or forked this little experiment. 🐨
 
 ## License
 
-Same as upstream — see `LICENSE`.
+GPL-3.0, same as upstream — see [`LICENSE`](LICENSE).
