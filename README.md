@@ -9,7 +9,7 @@
 
 ---
 
-[![AADisplay-Beta](https://img.shields.io/badge/AADisplayBeta-Project-blue?logo=github)](https://github.com/bikekoala/AADisplay-Beta)
+[![AADisplay-Beta](https://img.shields.io/badge/AADisplayBeta-Project-blue?logo=github)](https://github.com/koalaauto/AADisplay-Beta)
 [![GitHub Release](https://img.shields.io/github/v/release/Xposed-Modules-Repo/io.github.bikekoala.aa.display.beta)](https://github.com/Xposed-Modules-Repo/io.github.bikekoala.aa.display.beta/releases)
 ![Xposed Module](https://img.shields.io/badge/Xposed-Module-blue)
 ![Android SDK](https://img.shields.io/badge/Android%20SDK-min%2031%20%C2%B7%20target%2036-brightgreen?logo=android)
